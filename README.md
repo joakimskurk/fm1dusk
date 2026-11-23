@@ -75,7 +75,12 @@ start, continue and stop are PLAY.
 
 ## Install and try
 
-**Hear it without an FM-1:**
+**Try it and install it from the browser:** [joakimskurk.github.io/fm1dusk](https://joakimskurk.github.io/fm1dusk/).
+*Try it here* runs the firmware itself, compiled for the browser, with its screen, its panel, its keys and their
+lights, in any recent browser; what you keep on the shelf stays in that browser. *Install* needs Chrome or Edge on
+a computer and the FM-1 on USB; it always offers the latest build that passed its tests.
+
+**Hear it on a computer:**
 
 ```sh
 make tape N=1     # the first factory tape's song, as the FM-1 plays it: build/host/tape-1.wav (cc; N = 1..8)
@@ -99,6 +104,8 @@ make test     # the app's tests on a computer: no FM-1, no toolchain (cc, Python
 make gen      # firmware/gen/lofi_gen.h again, after changing the music in tools/gen_lofi.py
 make fw       # the FM-1 package, build/fm1dusk.fwsc (the JieLi toolchain and the AC79 SDK: docs/DINGHY_README.md)
 make emu      # the package in fm1-emu: how much of the chip it takes, that it plays and draws
+sh web/app/build.sh   # Dusk for the browser: build/web/fm1dusk.wasm (clang and lld)
+python3 web/make_site.py build/fm1dusk.fwsc VERSION build/site   # the web page: its installer, Dusk to try
 ```
 
 ## How it is made

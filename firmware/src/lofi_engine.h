@@ -140,18 +140,20 @@ typedef struct {
 } dvoice_t;
 static dvoice_t dv[4];
 
-typedef struct { uint16_t delay, gate; uint8_t type, a, b, c; } pev_t;
+typedef struct { uint32_t gate; uint16_t delay; uint8_t type, a, b, c; } pev_t;
 #define NPEV 48u
 static pev_t pev[NPEV];
 enum { PE_NONE, PE_NOTE, PE_DRUM };
 
 /* commands from the main loop: a ring, one writer */
-enum { C_NOTE_ON = 1, C_NOTE_OFF, C_CHORD_ON, C_CHORD_OFF, C_DRUM, C_PLAY, C_STOP, C_PANIC };
-static volatile uint32_t cq[32];
+enum { C_NOTE_ON = 1, C_NOTE_OFF, C_CHORD_ON, C_CHORD_OFF, C_DRUM, C_PLAY, C_STOP, C_PANIC, C_NOTE_HIT };
+#define NCQ 128u
+static volatile uint32_t cq[NCQ];
 static volatile uint32_t cq_w, cq_r;
 static void eng_cmd(uint32_t type, uint32_t a, uint32_t b, uint32_t c)
 {
-    cq[cq_w & 31u] = type | a << 8 | b << 16 | c << 24;
+    if (cq_w - cq_r >= NCQ) return;             /* (full: more than the interrupt takes in 6 ms; dropped) */
+    cq[cq_w & (NCQ - 1u)] = type | a << 8 | b << 16 | c << 24;
     cq_w++;
 }
 
@@ -341,12 +343,14 @@ static void drum_run(dvoice_t *v, int32_t *out)
     tinc = d->f1 + (uint32_t)(((int64_t)((int32_t)d->f0 - (int32_t)d->f1) * v->pe) >> 15);
     if (!inc) inc = tinc;
     dinc = ((int32_t)tinc - (int32_t)inc) / (int32_t)CH;
-    v->se -= (int32_t)(((uint32_t)v->se * d->sk) >> 16);
+    v->se -= (int32_t)(((uint32_t)v->se * d->sk) >> 16) + 1;
+    if (v->se < 0) v->se = 0;
     if (v->att) {
         v->ne += (v->nt * (int32_t)d->natt) >> 15;
         if (v->ne >= v->nt) { v->ne = v->nt; v->att = 0; }
     } else {
-        v->ne -= (int32_t)(((uint32_t)v->ne * d->nk) >> 16);
+        v->ne -= (int32_t)(((uint32_t)v->ne * d->nk) >> 16) + 1;
+        if (v->ne < 0) v->ne = 0;
     }
     se = v->se; ne = v->ne;
     das = (se - as) / (int32_t)CH;
@@ -389,7 +393,7 @@ static void pend(uint32_t delay, uint32_t type, uint32_t a, uint32_t b, uint32_t
     for (i = 0; i < NPEV; i++)
         if (!pev[i].type) {
             pev[i].delay = (uint16_t)(delay > 65535u ? 65535u : delay);
-            pev[i].gate = (uint16_t)(gate > 65535u ? 65535u : gate);
+            pev[i].gate = gate;
             pev[i].a = (uint8_t)a; pev[i].b = (uint8_t)b; pev[i].c = (uint8_t)c;
             pev[i].type = (uint8_t)type;
             return;
@@ -447,7 +451,7 @@ static void sq_fire(void)
             }
         if (changed && !hit && cp->implicit) {  /* a new chord between the rhythm's hits: it sounds, until the next */
             uint32_t len = 8u - (step & 7u), s2 = slot + 1u;
-            while (s2 < sc->bars * 2u && !sc_chord_raw(sc, s2) && len < 32u) { len += 8u; s2++; }
+            while (s2 < sc->bars * 2u && !sc_chord_raw(sc, s2)) { len += 8u; s2++; }
             chord_play(c, cp->n ? 4u : len, 96, K_BLOCK, 0, 0);
         }
     }
@@ -550,20 +554,30 @@ static void all_off(void)
     for (i = 0; i < NPEV; i++)
         pev[i].type = PE_NONE;
 }
+static void held_off(void)                      /* a chord held on the keys ends: its notes, and those of its strum
+                                                   still to come */
+{
+    uint32_t i;
+    for (i = 0; i < NPEV; i++)
+        if (pev[i].type == PE_NOTE && !pev[i].gate) pev[i].type = PE_NONE;
+    voices_release(T_KEYS, 2, 255u);
+}
 static void cmd_run(void)
 {
     while (cq_r != cq_w) {
-        uint32_t m = cq[cq_r & 31u], a = m >> 8 & 255u, b = m >> 16 & 255u, c = m >> 24;
+        uint32_t m = cq[cq_r & (NCQ - 1u)], a = m >> 8 & 255u, b = m >> 16 & 255u, c = m >> 24;
         cq_r++;
         switch (m & 255u) {
         case C_NOTE_ON: voices_release(a & 3u, 1, b); voice_on(a & 3u, b, c, 0, (a & 3u) == T_LEAD ? 6 : 0, 1); break;
         case C_NOTE_OFF: voices_release(a & 3u, 1, b); break;
-        case C_CHORD_ON: voices_release(T_KEYS, 2, 255u); chord_play(b, 0, c, K_BLOCK, 0, 1); break;
-        case C_CHORD_OFF: voices_release(T_KEYS, 2, 255u); break;
+        case C_CHORD_ON: held_off(); chord_play(b, 0, c, K_BLOCK, 0, 1); break;
+        case C_CHORD_OFF: held_off(); break;
+        case C_NOTE_HIT: voices_release(a & 3u, 0, 255u); voice_on(a & 3u, b, c, sq_stepch * 2u, 0, 0); break;
         case C_DRUM: drum_on(a, c); break;
-        case C_PLAY: all_off(); sq_start(a); break;
+        case C_PLAY: all_off(); sq_skip = 0; sq_start(a); break;
         case C_STOP:
             sq_run = 0;
+            sq_skip = 0;
             for (a = 0; a < NVOICE; a++)
                 if (vc[a].stage != ST_OFF && !vc[a].live) { vc[a].stage = ST_REL; vc[a].gate = 0; }
             for (a = 0; a < NPEV; a++) pev[a].type = PE_NONE;
@@ -755,8 +769,8 @@ static void eng_chunk(int32_t *out)
         LPF(fx.d1, sat17(dr[i]), ep.kt[T_DRUMS]); LPF(fx.d2, fx.d1, ep.kt[T_DRUMS]);
         d = (sclip(fx.d2) * ep.vol[T_DRUMS]) >> 12;
         /* together: the rest under the kick, the room */
-        ml = (((xl + b + ll) * duck) >> 15) + d;
-        mr = (((xr + b + lr) * duck) >> 15) + d;
+        ml = ((sat17(xl + b + ll) * duck) >> 15) + d;
+        mr = ((sat17(xr + b + lr) * duck) >> 15) + d;
         duck += dduck;
         if (i & 1u)
             reverb(((xl + xr + ll + lr + (ll + lr) / 2 + d / 2) * ep.space) >> 11);
@@ -790,7 +804,8 @@ static void eng_chunk(int32_t *out)
                 mr += ((fx.hr - fx.hr2) * ep.vinyl) >> 10;
                 p = 0; g = 0;
                 if ((nz_s >> 9 & 0xFFFFu) < ep.crk) {           /* a tick: an impulse into a short ring */
-                    int32_t a = (int32_t)((nz_s & 63u) * (nz_s >> 6 & 63u) * (nz_s >> 12 & 31u)) >> 4;
+                    uint32_t r = (uint32_t)noise16();           /* (its size from fresh bits: the trigger's are small) */
+                    int32_t a = (int32_t)((r & 63u) * (r >> 6 & 63u) * (r >> 12 & 15u)) >> 3;
                     a = (a * ep.vinyl) >> 5;
                     if (nz_s & 0x40000000u) p = a; else g = a;
                     if (!(nz_s & 0x30000000u)) p = g = a;
@@ -826,8 +841,8 @@ static void eng_chunk(int32_t *out)
             fx.hl_l = (fx.m2l - (fx.dcl >> 10)) & ~(int32_t)((1u << ep.cshift) - 1u);
             fx.hl_r = (fx.m2r - (fx.dcr >> 10)) & ~(int32_t)((1u << ep.cshift) - 1u);
         }
-        out[2u * i] += (fx.hl_l * fx.fade) >> 15;
-        out[2u * i + 1u] += (fx.hl_r * fx.fade) >> 15;
+        out[2u * i] += (sat17(fx.hl_l) * fx.fade) >> 15;
+        out[2u * i + 1u] += (sat17(fx.hl_r) * fx.fade) >> 15;
     }
 }
 

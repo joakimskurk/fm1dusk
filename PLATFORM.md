@@ -20,15 +20,15 @@ Kept small, so a later Dinghy can be merged by diffing these files.
 | `tests/run_tests.sh` | `fm1dusk.*` names; the SMK-37 packages' identities `_963` |
 | `tests/install_test.py` | `fm1dusk.*` names |
 | `README.md` | moved to `docs/DINGHY_README.md`; Dusk's README in its place |
-| `.github/workflows/release.yml` | replaced by `build.yml` (zvenson/fm1-build) |
-| `web/` (Dinghy has none) | `fm1pkg.js` and `fm1ota.js` from SLOOP (`bac9c05`, unchanged: Dinghy's `tests/install_test.py` checks `fm1pkg.js` against `tools/fm1pkg_make.py`). No page yet. |
+| `.github/workflows/release.yml` | replaced by `build.yml` (zvenson/fm1-build), with a job for the site (GitHub Pages) |
+| `web/` (Dinghy has none) | the site: `fm1pkg.js` and `fm1ota.js` from SLOOP (`bac9c05`, unchanged: the update protocol over Web MIDI; Dinghy's `tests/install_test.py` checks `fm1pkg.js` against `tools/fm1pkg_make.py`), Dusk's own page (`index.html`), `make_site.py` and Dusk for the browser (`web/app/`) |
 
 Dusk's own, beside those: `tools/gen_lofi.py`, `tools/render_tape.sh`, `tools/emu_check.sh`, `tools/emu_ci.sh`,
-`tests/run_lofi.sh`, `tests/lofi/`, `tests/scripts/lofi_*.txt`, `docs/screens/`.
+`tests/run_lofi.sh`, `tests/lofi/`, `tests/web/`, `tests/scripts/lofi_*.txt`, `docs/screens/`.
 
 Nothing in `firmware/hal/`, `firmware/loader/`, `firmware/app.ld` or `tests/host.c` is changed. `platform.c` has one
-change: with `DINGHY_WEB` (and `DINGHY_HOST`) it includes `web/app/web_host.c` (a browser's FM-1) instead of
-`tests/host.c`; Dusk has no `web/app/` yet, so do not define `DINGHY_WEB`.
+change: with `DINGHY_WEB` (and `DINGHY_HOST`) it includes `web/app/web_host.c`, the page's FM-1, instead of
+`tests/host.c` (Dusk in the browser: `web/app/`).
 
 ## Updating Dinghy
 

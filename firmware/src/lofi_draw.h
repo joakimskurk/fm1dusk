@@ -120,7 +120,7 @@ enum { PG_HOME, PG_KEYS, PG_BASS, PG_DRUMS, PG_LEAD, PG_FX, PG_SONG, PG_TAPES, N
 static struct {
     uint8_t page, track, slot, step, pos, song, dvoice, btype, fxrow, rec, tape;
     uint32_t toast_t;
-    char toast_a[20], toast_b[20];
+    char toast_a[20], toast_b[24];
 } ui = {.btype = 1};
 static char user_name[8][16];
 static uint8_t user_has[8];
@@ -145,8 +145,8 @@ static const char *snd_name(uint32_t t)
 static void draw_head(void)
 {
     static const char *const PAGE[NPAGE] = {"HOME", "KEYS", "BASS", "DRUMS", "LEAD", "TAPE FX", "SONG", "TAPES"};
-    const scene_t *sc = &beat.sc[beat.scene & 3u];
-    uint32_t i, playing = sq_run, sc_now = playing ? sq_scene : beat.scene;
+    uint32_t i, playing = sq_run, sc_now = (playing ? sq_scene : beat.scene) & 3u;
+    const scene_t *sc = &beat.sc[sc_now];       /* (the scene that plays: its bars, with its place) */
     uint16_t pc = ui.page >= PG_KEYS && ui.page <= PG_LEAD ? TRK_COL[PG_TRACK(ui.page)] : P_INK;
     char s[24], *p;
     int32_t prog = 0;
@@ -163,7 +163,7 @@ static void draw_head(void)
     cv_rect(9, 25, 222, 1, TRK_COL[3]);
     rrect(60, 29, 120, 20, P_INK);                              /* the window: two reels, the scenes between */
     if (playing)
-        prog = (int32_t)((sq_bar * 16u + sq_step) * 4u / (sc->bars * 16u));
+        prog = (int32_t)((sq_bar * 16u + sq_step) * 4u / (sc->bars * 16u)) & 3;
     for (i = 0; i < 2u; i++) {
         int32_t cx = i ? 166 : 74, k;
         disc(cx, 39, i ? 5 + prog : 9 - prog, P_TAPE);
@@ -425,9 +425,10 @@ static void page_lead(void)
         }
     }
     for (i = pg; i < pg + 32u && i < n; i = j) {
-        uint32_t m = sc_mel(sc, i);
+        uint32_t m = sc_mel(sc, i), k = i;
         for (j = i + 1u; j < n && sc_mel(sc, j) == MEL_TIE; j++)
             ;
+        while (m == MEL_TIE && k) m = sc_mel(sc, --k);          /* (held over from the page before: its note) */
         if (!m || m == MEL_TIE || m < lo || m > lo + 24u) continue;
         rrect(8 + 7 * (int32_t)(i - pg), 180 - 4 * (int32_t)(m - lo), 7 * (int32_t)((j > pg + 32u ? pg + 32u : j) - i) - 1,
               4, TRK_COL[T_LEAD]);

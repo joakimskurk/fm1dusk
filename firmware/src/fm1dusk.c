@@ -109,7 +109,7 @@ static void beat_take(void)                     /* tmp_beat becomes the tape, be
     fm1_irq_off();
     memcpy(&beat, &tmp_beat, sizeof beat);
     fm1_irq_on();
-    sq_queue = 0xFF;
+    sq_queue = sq_run && !beat.song_on ? beat.scene : 0xFF;     /* (playing: its scene, from the next bar) */
     ui.slot = ui.step = ui.pos = 0;
     rd_head = rd_body = rd_knob = 1;
 }
@@ -176,7 +176,7 @@ static void mel_put(scene_t *sc, uint32_t pos, uint32_t v)   /* a note (or a res
 /* ---- the panel */
 static uint8_t widx[27], bidx[27], wkey[16], bkey[11], held_note[27];
 static uint32_t keys_prev, chord_key = 99, aud_key = 99, aud_note, rec_key = 99, rec_pos, t_sel, sel_done, t_tap, n_tap;
-static uint32_t t_head, ticks_seen, hits_seen[NTRACK], lamps_shown;
+static uint32_t t_head, ticks_seen, was_run, keys_was, hits_seen[NTRACK], lamps_shown;
 static int is_black(uint32_t k) { return (0x54Au >> ((53u + k) % 12u)) & 1u; }
 static uint32_t cur_track(void) { return ui.page >= PG_KEYS && ui.page <= PG_LEAD ? PG_TRACK(ui.page) : ui.track; }
 
@@ -286,7 +286,7 @@ static void step_toggle(uint32_t t, uint32_t step)
         sc->bass[step] = sc->bass[step] == ui.btype ? 0 : ui.btype;
         if (sc->bass[step] && !sq_run) {
             uint32_t n = bass_note(sc, ui.slot % (sc->bars * 2u), ui.btype);
-            if (n) { eng_cmd(C_NOTE_ON, T_BASS, n, 100); aud_key = 98; aud_note = n; }
+            if (n) eng_cmd(C_NOTE_HIT, T_BASS, n, 100);
         }
     } else {
         uint8_t *p = &sc->drum[ui.dvoice & 3u][step];
@@ -306,7 +306,7 @@ static void key_down(uint32_t k)
     case PG_HOME:
         if (w < 4u) {
             for (i = 0; i < 4u; i++)
-                if (i != w && (fm1_in.notes >> wkey[i] & 1u)) break;
+                if (i != w && (keys_was >> wkey[i] & 1u)) break;
             if (i < 4u) {                       /* another scene's key is held: a copy of it here */
                 char s[8] = {(char)('A' + i), ' ', '>', ' ', (char)('A' + w), 0};
                 fm1_irq_off();
@@ -348,6 +348,7 @@ static void key_down(uint32_t k)
         if (b < 4u) {
             uint32_t n = bass_note(sc, ui.slot % (sc->bars * 2u), b + 1u);
             ui.btype = (uint8_t)(b + 1u);
+            if (aud_key != 99u) eng_cmd(C_NOTE_OFF, T_BASS, aud_note, 0);
             if (n) { eng_cmd(C_NOTE_ON, T_BASS, n, 100); aud_key = k; aud_note = n; }
         }
         return;
@@ -375,7 +376,7 @@ static void key_down(uint32_t k)
         } else {                                /* stopped: an eighth at the cursor, the cursor on */
             uint32_t pos = ui.pos % n;
             mel_put(sc, pos, note);
-            if (pos + 1u < n) sc->mel[pos + 1u] = MEL_TIE;
+            if (pos + 1u < n) mel_put(sc, pos + 1u, MEL_TIE);
             ui.pos = (uint8_t)((pos + 2u) % n);
         }
         CHG();
@@ -395,7 +396,7 @@ static void key_up(uint32_t k)
         held_note[k] = 0;
     }
     if (k == chord_key) { eng_cmd(C_CHORD_OFF, 0, 0, 0); chord_key = 99; }
-    if (aud_key != 99u && (k == aud_key || aud_key == 98u)) {
+    if (k == aud_key) {
         eng_cmd(C_NOTE_OFF, T_BASS, aud_note, 0);
         aud_key = 99;
     }
@@ -517,12 +518,16 @@ static void page_go(uint32_t p)
             if (ui.tape < 8u) {
                 char s[20], *q = put_s(s, "KEPT IN ");
                 put_u(q, ui.tape + 1u, 1);
+                int bad;
                 quiet();
-                blob_save(ui.tape, &beat, sizeof beat);
+                bad = blob_save(ui.tape, &beat, sizeof beat);
                 eng_hold = 0;
-                user_has[ui.tape] = 1;
-                scpy(user_name[ui.tape], beat.name, sizeof user_name[0]);
-                toast(s, beat.name);
+                if (bad) { toast("TAPES", "COULD NOT KEEP IT"); }
+                else {
+                    user_has[ui.tape] = 1;
+                    scpy(user_name[ui.tape], beat.name, sizeof user_name[0]);
+                    toast(s, beat.name);
+                }
             } else {
                 toast("A FACTORY TAPE", "PICK 1-8 TO KEEP");
             }
@@ -532,6 +537,7 @@ static void page_go(uint32_t p)
         if (ui.page >= PG_KEYS && ui.page <= PG_LEAD) ui.track = (uint8_t)PG_TRACK(ui.page);
         ui.page = (uint8_t)p;
         ui.toast_t = 0;
+        t_sel = 0;                              /* (SEL held from another page empties nothing here) */
     }
     rd_head = rd_body = rd_knob = 1;
 }
@@ -551,7 +557,7 @@ static void midi_in(void)
 static void leds(void)
 {
     static const uint8_t PAGE_BTN[NPAGE] = {BTN_HOME, BTN_ARP, BTN_LFO, BTN_SEQ, BTN_EDIT, BTN_FX, BTN_GLO, BTN_SAVE};
-    static uint32_t lit_s = ~0u, glow_s = ~0u, btn_s = ~0u;
+    static uint32_t lit_s, glow_s, btn_s, all = ~0u;            /* (all: the first time, every light as it should be) */
     const scene_t *sc = &beat.sc[beat.scene & 3u];
     uint32_t lit = 0, glow = 0, btn, i, live = sq_run && sq_scene == beat.scene;
     btn = 1u << PAGE_BTN[ui.page % NPAGE];
@@ -590,18 +596,18 @@ static void leds(void)
     }
     lit |= fm1_in.notes & (ui.page == PG_LEAD || ui.page >= PG_FX ? 0x7FFFFFFu : 0);
     for (i = 0; i < 27u; i++) {
-        if ((lit ^ lit_s) >> i & 1u) fm1_led_key(KEY_LED(i), lit >> i & 1u);
-        if ((glow ^ glow_s) >> i & 1u) fm1_led_key_glow(KEY_LED(i), glow >> i & 1u);
+        if (((lit ^ lit_s) | all) >> i & 1u) fm1_led_key(KEY_LED(i), lit >> i & 1u);
+        if (((glow ^ glow_s) | all) >> i & 1u) fm1_led_key_glow(KEY_LED(i), glow >> i & 1u);
     }
-    for (i = 0; i < 14u; i++)
-        if ((btn ^ btn_s) >> i & 1u) fm1_led_key(i, btn >> i & 1u);
+    for (i = 0; i < (BOARD_SMK37 ? 18u : 14u); i++)             /* (the SMK-37's PLAY, REC, FX, SEQ: ids 14..17) */
+        if (((btn ^ btn_s) | all) >> i & 1u) fm1_led_key(i, btn >> i & 1u);
     lit_s = lit; glow_s = glow; btn_s = btn;
+    all = 0;
 }
 
-static void app_main(void)
+static void app_init(void)
 {
     uint32_t k, nw = 0, nb = 0;
-    int32_t e;
     for (k = 0; k < 27u; k++) {
         widx[k] = bidx[k] = 255;
         if (is_black(k)) { if (nb < 11u) { bidx[k] = (uint8_t)nb; bkey[nb++] = (uint8_t)k; } }
@@ -618,9 +624,13 @@ static void app_main(void)
     else
         beat_take();
     lcd_fill(0, 0, 240, 240, P_BG);
+}
 
-    for (;;) {
-        uint32_t rel, b, keys, down, up, now;
+static void app_pass(void)                      /* the main loop, once round */
+{
+    {
+        uint32_t rel, b, keys, down, up, now, k;
+        int32_t e;
 #ifndef DINGHY_HOST
         if (usb.ota_req)
             eng_off = 1;                        /* the updater gets the whole chip */
@@ -655,7 +665,7 @@ static void app_main(void)
         if (b & (1u << BTN_FX)) page_go(PG_FX);
         if (b & (1u << BTN_GLO)) page_go(PG_SONG);
         if (b & (1u << BTN_SAVE)) page_go(PG_TAPES);
-        if (b & (1u << BTN_ENV)) {              /* the tempo, tapped: the mean of the last taps */
+        if (b & (1u << BTN_ENV)) {              /* the tempo, tapped: the mean of these taps */
             static uint32_t t_first;
             if (!n_tap || now - t_tap > 2000u) { n_tap = 0; t_first = now; }
             else if (now > t_first) {
@@ -709,6 +719,7 @@ static void app_main(void)
         down = fm1_input_note_edges() & 0x7FFFFFFu;
 #endif
         up = keys_prev & ~keys;
+        keys_was = keys_prev;
         keys_prev = keys | down;
         for (k = 0; k < 27u; k++) {
             if (down >> k & 1u) key_down(k);
@@ -729,7 +740,7 @@ static void app_main(void)
             rd_body = 1;
             if (!sq_step) rd_head = 1;
         }
-        if (!sq_run && ticks_seen) { ticks_seen = 0; rd_head = rd_body = 1; }
+        if (was_run != sq_run) { was_run = sq_run; rd_head = rd_body = 1; }   /* started, stopped */
         for (k = 0; k < NTRACK; k++)            /* the lanes' lamps: a note started */
             if (trk_hits[k] != hits_seen[k]) { hits_seen[k] = trk_hits[k]; lamp[k] = now | 1u; }
         if (ui.page == PG_HOME) {
@@ -759,4 +770,20 @@ static void app_main(void)
             dirty = 0;
         }
     }
+}
+
+static void app_main(void)
+{
+#ifdef DINGHY_WEB
+    static int started;                         /* in a browser (web/app/): a pass a call */
+    if (!started) {
+        started = 1;
+        app_init();
+    }
+    app_pass();
+#else
+    app_init();
+    for (;;)
+        app_pass();
+#endif
 }
