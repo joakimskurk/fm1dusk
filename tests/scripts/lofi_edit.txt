@@ -1,0 +1,53 @@
+# writing: chords with REC, a groove and a bass line on the white keys, a topline step by step, the song, a save
+200 btn 10
+300 btn 13
+400 keys 0x80
+500 keys 0
+600 keys 0x10
+700 keys 0
+800 keys 0x200
+900 keys 0
+1000 keys 0x4
+1100 keys 0
+1300 shot
+1500 btn 11
+1600 keys 0x8
+1700 keys 0
+1800 keys 0x10
+1900 keys 0
+2000 keys 0x4000
+2100 keys 0
+2300 shot
+2500 btn 5
+2600 keys 0x8
+2700 keys 0
+2800 keys 0x80
+2900 keys 0
+3100 shot
+3300 btn 6
+3400 enc 1 -1
+3500 keys 0x80000
+3600 keys 0
+3700 keys 0x200000
+3800 keys 0
+3900 btn 3
+4100 keys 0x800000
+4200 keys 0
+5000 shot
+5200 btn 13
+5300 btn 7
+5400 btn 3
+5500 btn 12
+5700 shot
+9000 shot
+9200 btn 9
+9300 btn 9
+9500 shot
+10900 shot
+11000 btn 8
+11100 keys 0x1
+11150 keys 0x5
+11200 keys 0
+11300 shot
+14000 shot
+15000 end

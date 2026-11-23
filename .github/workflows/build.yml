@@ -1,0 +1,28 @@
+# Every push and pull request: Dusk's host tests, Dinghy's platform tests and the real FM-1 package, built and
+# attested by the shared zvenson/fm1-build workflow (JieLi toolchain + AC79 SDK). Then fm1-emu runs the package: how much of the chip it takes, that it plays and draws
+# (tools/emu_ci.sh). A tag vX.Y also publishes the release.
+name: build
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    uses: zvenson/fm1-build/.github/workflows/build.yml@v1
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    with:
+      # a tag vX.Y: the release build (build/fm1dusk-X.Y.fwsc, version X.Y), and the tests run on a copy of those very
+      # bytes under the name they know; the release carries the one package
+      build: |
+        if [ "$GITHUB_REF_TYPE" = tag ]; then
+          ./build.sh --release "${GITHUB_REF_NAME#v}" && cp "build/fm1dusk-${GITHUB_REF_NAME#v}.fwsc" build/fm1dusk.fwsc
+        else ./build.sh; fi
+      test: python3 -m pip install -q numpy && sh tests/run_lofi.sh && sh tests/run_tests.sh && sh tools/emu_ci.sh
+      packages: ${{ github.ref_type == 'tag' && 'build/fm1dusk-*.fwsc' || 'build/fm1dusk.fwsc' }}

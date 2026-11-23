@@ -1,0 +1,12 @@
+# the clock: the drums alone (C4, D4 and F4 on HOME switch the keys, the bass and the lead off), the groove DILLA
+# (SELECT to the drums' lane, ALGORITHM one on): kicks on steps 0, 7 and 10, the 7 late by the swing (58 %)
+100 keys 0x80
+120 keys 0
+140 keys 0x200
+160 keys 0
+180 keys 0x1000
+200 keys 0
+220 enc 0 2
+240 enc 1 1
+300 btn 12
+16000 end

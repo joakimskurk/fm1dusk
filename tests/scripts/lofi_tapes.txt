@@ -1,0 +1,17 @@
+# the shelf: the tempo up, kept in tape 1; a factory tape loaded; tape 1 loaded again: as it was kept
+100 enc 2 9
+300 btn 9
+400 btn 9
+2500 btn 8
+2700 shot
+3000 btn 9
+3100 enc 0 9
+3200 btn 3
+5000 btn 8
+5200 shot
+5400 btn 9
+5500 enc 0 -9
+5600 btn 3
+7400 btn 8
+7600 shot
+10500 end

@@ -1,0 +1,21 @@
+# a tour: the first factory tape plays; every page once, a screen of each
+300 btn 12
+2500 shot
+6000 btn 10
+6500 shot
+9000 btn 5
+9500 shot
+12000 btn 11
+12500 shot
+15000 btn 6
+15500 shot
+18000 btn 2
+18500 shot
+20000 btn 7
+20500 shot
+22000 btn 9
+22500 shot
+23000 btn 8
+23200 enc 1 2
+23600 shot
+26000 end
